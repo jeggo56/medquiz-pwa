@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b6b57">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="apple-mobile-web-app-title" content="医考题库">
+  <title>医考题库</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航 -->
+    <header class="topbar">
+      <button class="icon-btn" id="btnBack" aria-label="返回" style="display:none">‹</button>
+      <div class="topbar-title" id="topbarTitle">医考题库</div>
+      <button class="icon-btn icon-btn-right" id="btnSearch" aria-label="搜索题目">⌕</button>
+    </header>
+
+    <!-- 主内容区 -->
+    <main id="main">
+      <!-- 首页 -->
+      <section class="view" id="view-home">
+        <div class="hero">
+          <div class="hero-kicker">MED STUDY</div>
+          <h1>今天也稳稳进步</h1>
+          <p class="hero-sub" id="heroDate">专注每一道题，知识会留下来</p>
+        </div>
+        <div class="stat-cards" id="statCards"></div>
+        <button class="continue-card" id="continueCard" style="display:none">
+          <span class="continue-icon">↗</span>
+          <span class="continue-copy"><b>继续上次练习</b><small id="continueMeta"></small></span>
+          <span class="continue-arrow">›</span>
+        </button>
+        <div class="section-heading"><span>开始学习</span><button id="quickSearch">搜索题目</button></div>
+        <div class="quick-grid">
+          <button class="quick-card quick-primary" id="menuPractice">
+            <span class="quick-icon">✦</span><b>智能刷题</b><small>科目 · 数量 · 顺序</small>
+          </button>
+          <button class="quick-card" id="menuReview">
+            <span class="quick-icon">⌁</span><b>记忆复习</b><small>间隔重复训练</small><i id="dueBadge">0</i>
+          </button>
+        </div>
+        <div class="card menu-card">
+          <div class="menu-item" id="menuWrong">
+            <div class="menu-ico ico-red">×</div>
+            <div class="menu-txt"><b>错题本</b><span>回顾做错的题目</span></div>
+            <div class="menu-arrow">›</div>
+          </div>
+          <div class="menu-item" id="menuNotes">
+            <div class="menu-ico ico-blue">✎</div>
+            <div class="menu-txt"><b>我的笔记</b><span>查看所有笔记</span></div>
+            <div class="menu-arrow">›</div>
+          </div>
+          <div class="menu-item" id="menuFav">
+            <div class="menu-ico ico-amber">★</div>
+            <div class="menu-txt"><b>收藏</b><span>标记的重点题目</span></div>
+            <div class="menu-arrow">›</div>
+          </div>
+          <div class="menu-item" id="menuSettings">
+            <div class="menu-ico ico-gray">···</div>
+            <div class="menu-txt"><b>设置与数据</b><span>备份、恢复和学习设置</span></div>
+            <div class="menu-arrow">›</div>
+          </div>
+        </div>
+        <div class="card subject-card">
+          <div class="card-title">按科目浏览</div>
+          <div id="subjectList" class="subject-list"></div>
+        </div>
+        <div class="footer-note">数据本地存储 · 支持离线使用</div>
+      </section>
+
+      <!-- 搜索 -->
+      <section class="view" id="view-search" style="display:none">
+        <div class="search-wrap">
+          <span>⌕</span><input id="searchInput" type="search" placeholder="搜索题干、选项或科目" autocomplete="off">
+        </div>
+        <div class="search-hint" id="searchHint">输入关键词查找 3210 道题</div>
+        <div id="searchResults"></div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="view" id="view-settings" style="display:none">
+        <div class="settings-title">学习设置</div>
+        <div class="card settings-card">
+          <label><span><b>每日新卡片</b><small>记忆复习中每天引入的题量</small></span><select id="newPerDay"><option>10</option><option>20</option><option>30</option><option>50</option></select></label>
+        </div>
+        <div class="settings-title">数据管理</div>
+        <div class="card settings-card">
+          <button id="btnExport"><span><b>导出学习数据</b><small>备份进度、错题、收藏和笔记</small></span><em>导出</em></button>
+          <button id="btnImport"><span><b>恢复学习数据</b><small>从备份文件恢复到本机</small></span><em>导入</em></button>
+          <input id="importFile" type="file" accept="application/json,.json" hidden>
+        </div>
+        <div class="install-card" id="installCard">
+          <div class="install-icon">医</div><div><b>添加到 iPhone 主屏幕</b><p>在 Safari 底部点“分享”，再选择“添加到主屏幕”。安装后可全屏、离线使用。</p></div>
+        </div>
+        <div class="app-version">医考题库 · 本地离线版</div>
+      </section>
+
+      <!-- 科目选择（刷题前） -->
+      <section class="view" id="view-subject-select" style="display:none">
+        <div class="card-title" style="padding:16px 0 8px">选择科目</div>
+        <div id="subjectSelectList" class="subject-list"></div>
+      </section>
+
+      <!-- 答题界面 -->
+      <section class="view" id="view-quiz" style="display:none">
+        <div class="quiz-head">
+          <div id="quizProgress" class="quiz-progress"></div>
+          <div id="quizMeta" class="quiz-meta"></div>
+        </div>
+        <div class="quiz-body" id="quizBody"></div>
+        <div class="quiz-foot" id="quizFoot"></div>
+      </section>
+
+      <!-- 复习界面 -->
+      <section class="view" id="view-review" style="display:none">
+        <div class="quiz-head">
+          <div id="reviewProgress" class="quiz-progress"></div>
+          <div id="reviewMeta" class="quiz-meta"></div>
+        </div>
+        <div class="quiz-body" id="reviewBody"></div>
+        <div class="quiz-foot" id="reviewFoot"></div>
+      </section>
+
+      <!-- 列表界面（错题/笔记/收藏/科目） -->
+      <section class="view" id="view-list" style="display:none">
+        <div id="listContent"></div>
+      </section>
+    </main>
+
+    <!-- 底部标签栏 -->
+    <nav class="tabbar">
+      <button class="tab active" data-tab="home"><span>⌂</span>首页</button>
+      <button class="tab" data-tab="review"><span>◎</span>复习</button>
+      <button class="tab" data-tab="wrong"><span>×</span>错题</button>
+      <button class="tab" data-tab="notes"><span>✎</span>笔记</button>
+    </nav>
+  </div>
+
+  <div class="config-mask" id="configMask"></div>
+  <div class="config-sheet" id="configSheet" role="dialog" aria-modal="true" aria-labelledby="configTitle">
+    <div class="sheet-grabber"></div>
+    <div class="config-head"><div><small>自由组合</small><h2 id="configTitle">开始刷题</h2></div><button id="closeConfig" aria-label="关闭">×</button></div>
+    <label class="config-field"><span>练习科目</span><select id="practiceSubject"></select></label>
+    <label class="config-field"><span>题目范围</span><select id="practiceScope"><option value="all">全部题目</option><option value="unseen">未做题目</option><option value="wrong">仅错题</option><option value="fav">仅收藏</option></select></label>
+    <label class="config-field"><span>本次题量</span><select id="practiceCount"><option value="10">10 题</option><option value="20" selected>20 题</option><option value="50">50 题</option><option value="100">100 题</option><option value="all">全部</option></select></label>
+    <label class="config-toggle"><span><b>随机顺序</b><small>每次打乱题目顺序</small></span><input id="practiceRandom" type="checkbox" checked><i></i></label>
+    <button class="start-btn" id="startConfigured">开始练习</button>
+    <div class="config-available" id="configAvailable"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
