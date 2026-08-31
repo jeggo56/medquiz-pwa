@@ -779,6 +779,12 @@
 
     // 注册 service worker
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        location.reload();
+      });
       navigator.serviceWorker.register('sw.js').catch(() => {});
     }
 

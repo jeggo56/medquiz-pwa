@@ -1,5 +1,5 @@
 /* 医考题库 Service Worker */
-const CACHE = 'medquiz-v2';
+const CACHE = 'medquiz-v3';
 const ASSETS = [
   './',
   './index.html',
