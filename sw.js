@@ -1,5 +1,5 @@
 /* 医考题库 Service Worker */
-const CACHE = 'medquiz-v5';
+const CACHE = 'medquiz-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,13 @@ const ASSETS = [
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './question-images/rad-physics-069-a.png',
+  './question-images/rad-physics-069-b.png',
+  './question-images/rad-physics-069-c.png',
+  './question-images/rad-physics-069-d.jpg',
+  './question-images/rad-physics-075-a.png',
+  './question-images/rad-physics-075-b.png',
+  './question-images/rad-physics-075-c.png',
 ];
 
 self.addEventListener('install', (e) => {

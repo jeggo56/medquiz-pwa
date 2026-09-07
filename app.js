@@ -11,6 +11,7 @@
     type: q.type || 'single',
     stem: (q.stem || '').trim(),
     options: Array.isArray(q.options) ? q.options : [],
+    optionImages: Array.isArray(q.optionImages) ? q.optionImages : [],
     answer: (q.answer || '').trim(),
     explanation: (q.explanation || '').trim(),
   }));
@@ -33,7 +34,7 @@
     return {
       memory: {}, wrong: {}, fav: {}, notes: {}, practice: {}, newToday: {},
       session: null,
-      settings: { newPerDay: 20, autoAdvance: false, questionSeconds: 30, answerSeconds: 5 }
+      settings: { newPerDay: 20 }
     };
   }
   function loadState() {
@@ -42,7 +43,7 @@
       if (raw) {
         const s = JSON.parse(raw);
         const merged = Object.assign(defaultState(), s);
-        merged.settings = Object.assign({ newPerDay: 20, autoAdvance: false, questionSeconds: 30, answerSeconds: 5 }, s.settings || {});
+        merged.settings = Object.assign({ newPerDay: 20 }, s.settings || {});
         return merged;
       }
     } catch (e) { /* ignore */ }
@@ -202,6 +203,7 @@
   let practiceQueue = [];
   let practiceIndex = 0;
   let practiceMeta = {};
+  let practiceResponses = {};
   let practiceTimeout = null;
   let practiceCountdown = null;
 
@@ -212,40 +214,32 @@
     practiceCountdown = null;
   }
 
-  function practiceAutoEnabled() {
-    return practiceMeta.mode === 'practice' && practiceMeta.autoAdvance === true;
-  }
-
-  function showCountdown(prefix, deadline) {
+  function showCountdown(deadline) {
     const update = () => {
       const el = $('#autoCountdown');
       if (!el) return;
       const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-      el.textContent = `${prefix}${seconds} 秒`;
+      el.textContent = `${seconds} 秒后下一题`;
     };
     update();
     practiceCountdown = setInterval(update, 250);
   }
 
-  function scheduleAnswerReveal(q) {
+  function scheduleNextQuestion(correct) {
     clearPracticeTimers();
-    if (!practiceAutoEnabled() || !isAutoGradable(q)) return;
-    const seconds = Math.max(1, Number(practiceMeta.questionSeconds) || 30);
-    const deadline = Date.now() + seconds * 1000;
-    showCountdown('自动显示答案：', deadline);
-    practiceTimeout = setTimeout(() => {
-      const reveal = $('#btnReveal');
-      if (reveal) reveal.click();
-    }, seconds * 1000);
-  }
-
-  function scheduleNextQuestion() {
-    clearPracticeTimers();
-    if (!practiceAutoEnabled()) return;
-    const seconds = Math.max(1, Number(practiceMeta.answerSeconds) || 5);
-    const deadline = Date.now() + seconds * 1000;
-    showCountdown('进入下一题：', deadline);
-    practiceTimeout = setTimeout(nextPractice, seconds * 1000);
+    if (practiceMeta.mode === 'single') return;
+    const delay = correct ? 700 : 3000;
+    if (!correct) showCountdown(Date.now() + delay);
+    practiceTimeout = setTimeout(nextPractice, delay);
+    if (!correct) {
+      const pause = $('#btnPauseAuto');
+      if (pause) pause.onclick = () => {
+        clearPracticeTimers();
+        pause.disabled = true;
+        pause.textContent = '已暂停自动跳转';
+        showToast('已暂停，可慢慢查看答案');
+      };
+    }
   }
 
   function startPractice(subject, options) {
@@ -258,15 +252,13 @@
     const count = options.count === 'all' ? list.length : parseInt(options.count || 20, 10);
     practiceQueue = list.slice(0, count);
     practiceIndex = 0;
+    practiceResponses = {};
     practiceMeta = {
       subject: subject || '全部科目',
       mode: 'practice',
       scope: options.scope || 'all',
-      autoAdvance: options.autoAdvance === true,
-      questionSeconds: Number(options.questionSeconds) || 30,
-      answerSeconds: Number(options.answerSeconds) || 5,
     };
-    state.session = { ids: practiceQueue.map(q => q.id), index: 0, meta: practiceMeta, correct: 0, answered: 0, startedAt: Date.now() };
+    state.session = { ids: practiceQueue.map(q => q.id), index: 0, meta: practiceMeta, responses: {}, correct: 0, answered: 0, startedAt: Date.now() };
     saveState();
     showView('view-quiz', '刷题练习');
     renderPractice();
@@ -283,11 +275,13 @@
     practiceQueue = s.ids.map(questionById).filter(Boolean);
     practiceIndex = Math.min(s.index || 0, Math.max(0, practiceQueue.length - 1));
     practiceMeta = s.meta || { subject: '全部科目', mode: 'practice' };
+    practiceResponses = s.responses || {};
     showView('view-quiz', '继续练习');
     renderPractice();
   }
 
   function nextPractice() {
+    clearPracticeTimers();
     practiceIndex++;
     if (state.session && practiceMeta.mode === 'practice') {
       state.session.index = practiceIndex;
@@ -297,6 +291,7 @@
   }
 
   function previousPractice() {
+    clearPracticeTimers();
     if (practiceIndex <= 0) return;
     practiceIndex--;
     if (state.session && practiceMeta.mode === 'practice') {
@@ -320,14 +315,21 @@
     const q = practiceQueue[practiceIndex];
     if (!q) {
       const s = practiceMeta.mode === 'practice' ? state.session : null;
-      const rate = s && s.answered ? Math.round(s.correct / s.answered * 100) : 0;
-      $('#quizBody').innerHTML = `<div class="list-empty"><span class="big">✓</span><b>本组练习完成</b><br><span style="font-size:14px">答题 ${s ? s.answered : practiceQueue.length} 道 · 正确率 ${rate}%</span></div>`;
-      $('#quizFoot').innerHTML = '<button class="btn btn-primary" id="practiceDone">返回首页</button>';
+      const responses = Object.values(practiceResponses);
+      const answered = s ? s.answered : responses.length;
+      const correct = s ? s.correct : responses.filter(r => r.correct).length;
+      const rate = answered ? Math.round(correct / answered * 100) : 0;
+      $('#quizBody').innerHTML = `<div class="list-empty"><span class="big">✓</span><b>本组练习完成</b><br><span style="font-size:14px">答题 ${answered} 道 · 正确率 ${rate}%</span></div>`;
+      const doneText = practiceMeta.collection ? `返回${practiceMeta.collection === 'wrong' ? '错题' : '笔记'}分类` : '返回首页';
+      $('#quizFoot').innerHTML = `<button class="btn btn-primary" id="practiceDone">${doneText}</button>`;
       if (practiceMeta.mode === 'practice') {
         state.session = null;
         saveState();
       }
-      $('#practiceDone').onclick = () => { renderHome(); showView('view-home', '医考题库'); };
+      $('#practiceDone').onclick = () => {
+        if (practiceMeta.collection) renderCollection(practiceMeta.collection);
+        else { renderHome(); showView('view-home', '医考题库'); }
+      };
       return;
     }
     if (state.session && practiceMeta.mode === 'practice') {
@@ -339,11 +341,18 @@
       <span>${practiceIndex + 1} / ${total}</span>
       <div class="bar"><div class="bar-fill" style="width:${((practiceIndex) / total) * 100}%"></div></div>
     `;
-    $('#quizMeta').innerHTML = `${escapeHtml(q.subject)} · ${TYPES[q.type] || q.type}${practiceAutoEnabled() ? ' · <span class="auto-countdown" id="autoCountdown"></span>' : ''}`;
+    $('#quizMeta').innerHTML = `${escapeHtml(q.subject)} · ${TYPES[q.type] || q.type} · 左右滑动切题`;
     $('#quizBody').innerHTML = renderQuestion(q, 'practice');
     $('#quizFoot').innerHTML = renderPracticeFoot(q);
-    bindPractice(q);
-    scheduleAnswerReveal(q);
+    const saved = practiceResponses[q.id];
+    if (saved) {
+      const opts = $$('#quizBody .opt');
+      const savedSelection = Array.isArray(saved.selected) ? saved.selected : [];
+      opts.forEach(o => o.classList.toggle('selected', savedSelection.includes(o.dataset.val)));
+      revealAnswer(q, opts, savedSelection, 'practice', { correct: saved.correct, restored: true, selfGraded: saved.selfGraded === true });
+    } else {
+      bindPractice(q);
+    }
   }
 
   function renderQuestion(q, mode) {
@@ -359,7 +368,8 @@
     } else if (q.options.length) {
       q.options.forEach((opt, i) => {
         const letter = String.fromCharCode(65 + i);
-        html += `<div class="opt" data-val="${letter}"><div class="opt-letter">${letter}</div><div class="opt-txt">${escapeHtml(opt)}</div></div>`;
+        const image = q.optionImages[i] ? `<img class="opt-image" src="${escapeAttr(q.optionImages[i])}" alt="选项 ${letter} 图片" loading="lazy">` : '';
+        html += `<div class="opt" data-val="${letter}"><div class="opt-letter">${letter}</div><div class="opt-txt">${escapeHtml(opt)}${image}</div></div>`;
       });
     } else {
       html += `<div class="list-empty" style="padding:20px">（无选项）</div>`;
@@ -370,8 +380,11 @@
   function renderPracticeFoot(q) {
     const previous = `<button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button>`;
     if (isAutoGradable(q)) {
-      return `<div class="practice-actions">${previous}<button class="btn btn-secondary" id="btnReveal">显示答案</button>
-              <button class="btn btn-primary" id="btnSubmit" disabled>提交</button></div>`;
+      if (q.type === 'multiple') {
+        return `<div class="practice-actions">${previous}<button class="btn btn-secondary" id="btnReveal">显示答案</button>
+                <button class="btn btn-primary" id="btnSubmit" disabled>提交</button></div>`;
+      }
+      return `<div class="practice-actions">${previous}<div class="answer-tip">选择答案后自动判定</div></div>`;
     }
     // 名词解释/配伍/案例：自评模式
     return `<div class="practice-actions">${previous}<button class="btn btn-secondary" id="btnReveal">显示答案</button></div>`;
@@ -381,6 +394,7 @@
     const opts = $$('#quizBody .opt');
     let selected = [];
     const isMulti = q.type === 'multiple';
+    let answered = false;
 
     const previousBtn = $('#btnPrev');
     if (previousBtn) previousBtn.onclick = previousPractice;
@@ -395,6 +409,11 @@
           o.classList.add('selected');
         }
         updateSelected();
+        if (!isMulti && isAutoGradable(q) && !answered) {
+          answered = true;
+          opts.forEach(x => x.classList.add('disabled'));
+          gradePractice(q, selected);
+        }
       };
     });
 
@@ -405,7 +424,7 @@
     }
 
     const revealBtn = $('#btnReveal');
-    if (revealBtn) revealBtn.onclick = () => revealAnswer(q, opts, selected, 'practice');
+    if (revealBtn) revealBtn.onclick = () => revealAnswer(q, opts, selected, 'practice', null);
 
     const submitBtn = $('#btnSubmit');
     if (submitBtn) {
@@ -415,7 +434,7 @@
     }
   }
 
-  function revealAnswer(q, opts, selected, mode) {
+  function revealAnswer(q, opts, selected, mode, outcome) {
     if ($('#quizBody .answer-box')) return;
     clearPracticeTimers();
     const letters = answerLetters(q);
@@ -443,10 +462,16 @@
         o.classList.add('wrong');
       }
     });
+    if (outcome && typeof outcome.correct === 'boolean' && !outcome.restored) {
+      const result = document.createElement('div');
+      result.className = `answer-result ${outcome.correct ? 'is-correct' : 'is-wrong'}`;
+      result.textContent = outcome.correct ? '✓ 回答正确' : '✗ 回答错误，正确答案如下';
+      $('#quizBody').appendChild(result);
+    }
     appendAnswerBox(q, mode, selected);
     // 切换底部按钮
     const foot = $('#quizFoot');
-    if (!isAutoGradable(q) && !q._selfGraded) {
+    if (!isAutoGradable(q) && !(outcome && outcome.selfGraded)) {
       // 自评模式：显示"我答对了/我答错了"
       foot.innerHTML = `<div class="practice-actions">
         <button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button>
@@ -456,15 +481,20 @@
       $('#btnSelfRight').onclick = () => selfGrade(q, true);
       $('#btnSelfWrong').onclick = () => selfGrade(q, false);
     } else {
-      foot.innerHTML = `<div class="practice-actions"><button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button><button class="btn btn-primary" id="btnNext">下一题</button></div>`;
+      const shouldAuto = outcome && typeof outcome.correct === 'boolean' && !outcome.restored && practiceMeta.mode !== 'single';
+      const pause = shouldAuto && !outcome.correct
+        ? '<button class="btn btn-secondary btn-pause" id="btnPauseAuto"><span id="autoCountdown">3 秒后下一题</span><small>暂停</small></button>'
+        : '';
+      foot.innerHTML = `<div class="practice-actions"><button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button>${pause}<button class="btn btn-primary" id="btnNext">下一题</button></div>`;
       $('#btnPrev').onclick = previousPractice;
       $('#btnNext').onclick = nextPractice;
-      scheduleNextQuestion();
+      if (shouldAuto) scheduleNextQuestion(outcome.correct);
     }
     showNoteEditor(q);
   }
 
   function gradePractice(q, selected) {
+    if (practiceResponses[q.id]) return;
     const letters = answerLetters(q);
     let correct = false;
     if (isJudge(q)) {
@@ -486,26 +516,30 @@
       state.wrong[q.id] = 1;
     }
     state.practice[q.id] = p;
+    practiceResponses[q.id] = { selected: selected.slice(), correct };
     if (state.session && practiceMeta.mode === 'practice') {
       state.session.answered = (state.session.answered || 0) + 1;
       if (correct) state.session.correct = (state.session.correct || 0) + 1;
+      state.session.responses = practiceResponses;
     }
     saveState();
 
-    revealAnswer(q, $$('#quizBody .opt'), selected, 'practice');
+    revealAnswer(q, $$('#quizBody .opt'), selected, 'practice', { correct, restored: false });
   }
 
   function selfGrade(q, correct) {
+    if (practiceResponses[q.id]) return;
     const p = state.practice[q.id] || { total: 0, correct: 0 };
     p.total++;
     if (correct) { p.correct++; delete state.wrong[q.id]; } else state.wrong[q.id] = 1;
     state.practice[q.id] = p;
+    practiceResponses[q.id] = { selected: [], correct, selfGraded: true };
     if (state.session && practiceMeta.mode === 'practice') {
       state.session.answered = (state.session.answered || 0) + 1;
       if (correct) state.session.correct = (state.session.correct || 0) + 1;
+      state.session.responses = practiceResponses;
     }
     saveState();
-    q._selfGraded = true;
     const foot = $('#quizFoot');
     foot.innerHTML = `<div class="practice-actions"><button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button><button class="btn btn-primary" id="btnNext">下一题</button></div>`;
     $('#btnPrev').onclick = previousPractice;
@@ -542,6 +576,7 @@
 
   function showNoteEditor(q) {
     const body = $('#quizBody');
+    if (body.querySelector('.note-editor')) return;
     const wrap = document.createElement('div');
     wrap.className = 'note-editor';
     wrap.innerHTML = `<div class="card-title" style="padding:10px 0 4px">📝 我的笔记</div>
@@ -620,6 +655,66 @@
   }
 
   // ---------- 列表（错题/笔记/收藏/科目） ----------
+  function collectionItems(kind) {
+    const ids = kind === 'wrong'
+      ? new Set(Object.keys(state.wrong))
+      : new Set(Object.keys(state.notes).filter(id => state.notes[id]));
+    return BANK.filter(q => ids.has(q.id));
+  }
+
+  function renderCollection(kind) {
+    const isWrong = kind === 'wrong';
+    const title = isWrong ? '错题本' : '我的笔记';
+    const icon = isWrong ? '📕' : '📝';
+    const items = collectionItems(kind);
+    const grouped = new Map();
+    items.forEach(q => grouped.set(q.subject, (grouped.get(q.subject) || 0) + 1));
+    showView('view-list', title);
+    if (!items.length) {
+      $('#listContent').innerHTML = `<div class="list-empty"><span class="big">${icon}</span>空空如也</div>`;
+      return;
+    }
+    const categories = Array.from(grouped.entries()).sort((a, b) => b[1] - a[1]);
+    $('#listContent').innerHTML = `
+      <div class="collection-summary">
+        <div><b>${items.length} 道${isWrong ? '错题' : '笔记题'}</b><p>按科目进入连续刷题，左右滑动也可切题</p></div>
+        <button class="btn btn-primary" id="practiceCollectionAll">全部连续练习</button>
+      </div>
+      <div class="card subject-card collection-subjects">
+        <div class="card-title">按科目分类</div>
+        <div class="subject-list">${categories.map(([subject, count]) => `
+          <div class="subject-item" data-subject="${escapeAttr(subject)}">
+            <div class="s-name">${escapeHtml(subject)}</div>
+            <div class="s-count">${count} 题 · 开始 ›</div>
+          </div>`).join('')}</div>
+      </div>`;
+    $$('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === kind));
+    $('#practiceCollectionAll').onclick = () => startCollectionPractice(kind, null);
+    $$('#listContent .subject-item').forEach(item => {
+      item.onclick = () => startCollectionPractice(kind, item.dataset.subject);
+    });
+  }
+
+  function startCollectionPractice(kind, subject) {
+    let items = collectionItems(kind);
+    if (subject) items = items.filter(q => q.subject === subject);
+    if (!items.length) {
+      showToast('这个分类暂时没有题目');
+      renderCollection(kind);
+      return;
+    }
+    practiceQueue = items;
+    practiceIndex = 0;
+    practiceResponses = {};
+    practiceMeta = {
+      subject: subject || (kind === 'wrong' ? '全部错题' : '全部笔记'),
+      mode: 'collection',
+      collection: kind,
+    };
+    showView('view-quiz', kind === 'wrong' ? '错题巩固' : '笔记复习');
+    renderPractice();
+  }
+
   function renderList(title, ids, emptyMsg) {
     showView('view-list', title);
     const items = ids.map(id => questionById(id)).filter(Boolean);
@@ -639,6 +734,7 @@
     // 在刷题模式中打开单个题目
     practiceQueue = [questionById(id)];
     practiceIndex = 0;
+    practiceResponses = {};
     practiceMeta = { subject: '', mode: 'single' };
     showView('view-quiz', '题目详情');
     renderPractice();
@@ -694,8 +790,6 @@
   function openPracticeConfig() {
     $('#practiceSubject').innerHTML = '<option value="">全部科目</option>' + subjects().map(s =>
       `<option value="${escapeAttr(s.name)}">${escapeHtml(s.name)}（${s.count}）</option>`).join('');
-    $('#practiceAutoAdvance').checked = state.settings.autoAdvance === true;
-    $('#practiceAutoHint').textContent = `${state.settings.questionSeconds || 30} 秒显示答案，停留 ${state.settings.answerSeconds || 5} 秒跳题`;
     updateConfigAvailable();
     $('#configMask').classList.add('show');
     $('#configSheet').classList.add('show');
@@ -709,9 +803,6 @@
   // ---------- 设置与数据 ----------
   function openSettings() {
     $('#newPerDay').value = String(state.settings.newPerDay || 20);
-    $('#autoAdvance').checked = state.settings.autoAdvance === true;
-    $('#questionSeconds').value = String(state.settings.questionSeconds || 30);
-    $('#answerSeconds').value = String(state.settings.answerSeconds || 5);
     showView('view-settings', '设置与数据');
   }
 
@@ -791,9 +882,55 @@
   }
   function escapeAttr(s) { return escapeHtml(s); }
 
+  function bindSwipeNavigation() {
+    const surface = $('#quizBody');
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+    surface.addEventListener('touchstart', event => {
+      const target = event.target;
+      if (target && target.closest && target.closest('textarea, input, button')) return;
+      const touch = event.changedTouches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      tracking = true;
+      surface.classList.remove('swipe-reset');
+    }, { passive: true });
+    surface.addEventListener('touchmove', event => {
+      if (!tracking) return;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        surface.style.transform = `translateX(${Math.max(-28, Math.min(28, dx * 0.16))}px)`;
+        surface.style.opacity = String(Math.max(0.78, 1 - Math.abs(dx) / 600));
+      }
+    }, { passive: true });
+    surface.addEventListener('touchend', event => {
+      if (!tracking) return;
+      tracking = false;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      surface.classList.add('swipe-reset');
+      surface.style.transform = '';
+      surface.style.opacity = '';
+      if (currentView !== 'view-quiz' || Math.abs(dx) < 55 || Math.abs(dx) <= Math.abs(dy) * 1.2) return;
+      if (dx < 0) nextPractice();
+      else previousPractice();
+    }, { passive: true });
+  }
+
   // ---------- 事件绑定 ----------
   function bindNav() {
-    $('#btnBack').onclick = () => { renderHome(); showView('view-home', '医考题库'); };
+    $('#btnBack').onclick = () => {
+      if (currentView === 'view-quiz' && practiceMeta.collection) {
+        renderCollection(practiceMeta.collection);
+      } else {
+        renderHome();
+        showView('view-home', '医考题库');
+      }
+    };
     $('#btnSearch').onclick = openSearch;
     $('#quickSearch').onclick = openSearch;
     $('#continueCard').onclick = resumePractice;
@@ -803,16 +940,16 @@
         const tab = t.dataset.tab;
         if (tab === 'home') showView('view-home', '医考题库');
         else if (tab === 'review') startReview();
-        else if (tab === 'wrong') renderList('错题本', Object.keys(state.wrong), '📕');
-        else if (tab === 'notes') renderList('我的笔记', Object.keys(state.notes).filter(k => state.notes[k]), '📝');
+        else if (tab === 'wrong') renderCollection('wrong');
+        else if (tab === 'notes') renderCollection('notes');
       };
     });
 
     $('#menuPractice').onclick = openPracticeConfig;
 
     $('#menuReview').onclick = startReview;
-    $('#menuWrong').onclick = () => renderList('错题本', Object.keys(state.wrong), '📕');
-    $('#menuNotes').onclick = () => renderList('我的笔记', Object.keys(state.notes).filter(k => state.notes[k]), '📝');
+    $('#menuWrong').onclick = () => renderCollection('wrong');
+    $('#menuNotes').onclick = () => renderCollection('notes');
     $('#menuFav').onclick = () => renderList('收藏', Object.keys(state.fav), '⭐');
     $('#menuSettings').onclick = openSettings;
 
@@ -826,9 +963,6 @@
         scope: $('#practiceScope').value,
         count: $('#practiceCount').value,
         random: $('#practiceRandom').checked,
-        autoAdvance: $('#practiceAutoAdvance').checked,
-        questionSeconds: state.settings.questionSeconds,
-        answerSeconds: state.settings.answerSeconds,
       };
       closePracticeConfig();
       startPractice(subject, options);
@@ -845,21 +979,6 @@
       saveState();
       showToast('学习设置已保存');
     };
-    $('#autoAdvance').onchange = e => {
-      state.settings.autoAdvance = e.target.checked;
-      saveState();
-      showToast('自动答题设置已保存');
-    };
-    $('#questionSeconds').onchange = e => {
-      state.settings.questionSeconds = parseInt(e.target.value, 10) || 30;
-      saveState();
-      showToast('答题时间已保存');
-    };
-    $('#answerSeconds').onchange = e => {
-      state.settings.answerSeconds = parseInt(e.target.value, 10) || 5;
-      saveState();
-      showToast('答案停留时间已保存');
-    };
     $('#btnExport').onclick = exportData;
     $('#btnImport').onclick = () => $('#importFile').click();
     $('#importFile').onchange = e => importData(e.target.files[0]);
@@ -873,6 +992,7 @@
         '<div class="sheet-mask"></div><div class="sheet"></div>');
     }
     bindNav();
+    bindSwipeNavigation();
     renderHome();
     if (window.location.hash === '#review') startReview();
 

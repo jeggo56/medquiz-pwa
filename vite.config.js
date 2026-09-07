@@ -15,6 +15,8 @@ function copyStaticPwa() {
       }
       mkdirSync(outDir + 'icons', { recursive: true });
       cpSync(projectDir + 'icons', outDir + 'icons', { recursive: true });
+      mkdirSync(outDir + 'question-images', { recursive: true });
+      cpSync(projectDir + 'question-images', outDir + 'question-images', { recursive: true });
       mkdirSync(outDir + 'server', { recursive: true });
       writeFileSync(outDir + 'server/index.js', `export default {
   async fetch(request, env) {
