@@ -80,7 +80,7 @@
         <div class="search-wrap">
           <span>⌕</span><input id="searchInput" type="search" placeholder="搜索题干、选项或科目" autocomplete="off">
         </div>
-        <div class="search-hint" id="searchHint">输入关键词查找 3210 道题</div>
+        <div class="search-hint" id="searchHint">输入关键词查找 3200 道题</div>
         <div id="searchResults"></div>
       </section>
 
@@ -89,6 +89,9 @@
         <div class="settings-title">学习设置</div>
         <div class="card settings-card">
           <label><span><b>每日新卡片</b><small>记忆复习中每天引入的题量</small></span><select id="newPerDay"><option>10</option><option>20</option><option>30</option><option>50</option></select></label>
+          <label class="config-toggle settings-toggle"><span><b>自动显示答案并跳题</b><small>刷题时按设定时间自动进行</small></span><input id="autoAdvance" type="checkbox"><i></i></label>
+          <label><span><b>答题时间</b><small>到时自动显示正确答案</small></span><select id="questionSeconds"><option value="10">10 秒</option><option value="15">15 秒</option><option value="20">20 秒</option><option value="30">30 秒</option><option value="45">45 秒</option><option value="60">60 秒</option><option value="90">90 秒</option></select></label>
+          <label><span><b>答案停留</b><small>显示答案后多久进入下一题</small></span><select id="answerSeconds"><option value="2">2 秒</option><option value="3">3 秒</option><option value="5">5 秒</option><option value="8">8 秒</option><option value="10">10 秒</option></select></label>
         </div>
         <div class="settings-title">数据管理</div>
         <div class="card settings-card">
@@ -151,6 +154,7 @@
     <label class="config-field"><span>题目范围</span><select id="practiceScope"><option value="all">全部题目</option><option value="unseen">未做题目</option><option value="wrong">仅错题</option><option value="fav">仅收藏</option></select></label>
     <label class="config-field"><span>本次题量</span><select id="practiceCount"><option value="10">10 题</option><option value="20" selected>20 题</option><option value="50">50 题</option><option value="100">100 题</option><option value="all">全部</option></select></label>
     <label class="config-toggle"><span><b>随机顺序</b><small>每次打乱题目顺序</small></span><input id="practiceRandom" type="checkbox" checked><i></i></label>
+    <label class="config-toggle"><span><b>自动显示答案并跳题</b><small id="practiceAutoHint">按学习设置中的时间进行</small></span><input id="practiceAutoAdvance" type="checkbox"><i></i></label>
     <button class="start-btn" id="startConfigured">开始练习</button>
     <div class="config-available" id="configAvailable"></div>
   </div>

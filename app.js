@@ -33,7 +33,7 @@
     return {
       memory: {}, wrong: {}, fav: {}, notes: {}, practice: {}, newToday: {},
       session: null,
-      settings: { newPerDay: 20 }
+      settings: { newPerDay: 20, autoAdvance: false, questionSeconds: 30, answerSeconds: 5 }
     };
   }
   function loadState() {
@@ -42,7 +42,7 @@
       if (raw) {
         const s = JSON.parse(raw);
         const merged = Object.assign(defaultState(), s);
-        merged.settings = Object.assign({ newPerDay: 20 }, s.settings || {});
+        merged.settings = Object.assign({ newPerDay: 20, autoAdvance: false, questionSeconds: 30, answerSeconds: 5 }, s.settings || {});
         return merged;
       }
     } catch (e) { /* ignore */ }
@@ -147,6 +147,7 @@
   // ---------- 视图路由 ----------
   let currentView = 'view-home';
   function showView(id, title) {
+    if (id !== 'view-quiz') clearPracticeTimers();
     currentView = id;
     $$('.view').forEach(v => v.style.display = 'none');
     $('#' + id).style.display = 'block';
@@ -201,6 +202,51 @@
   let practiceQueue = [];
   let practiceIndex = 0;
   let practiceMeta = {};
+  let practiceTimeout = null;
+  let practiceCountdown = null;
+
+  function clearPracticeTimers() {
+    if (practiceTimeout) clearTimeout(practiceTimeout);
+    if (practiceCountdown) clearInterval(practiceCountdown);
+    practiceTimeout = null;
+    practiceCountdown = null;
+  }
+
+  function practiceAutoEnabled() {
+    return practiceMeta.mode === 'practice' && practiceMeta.autoAdvance === true;
+  }
+
+  function showCountdown(prefix, deadline) {
+    const update = () => {
+      const el = $('#autoCountdown');
+      if (!el) return;
+      const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      el.textContent = `${prefix}${seconds} 秒`;
+    };
+    update();
+    practiceCountdown = setInterval(update, 250);
+  }
+
+  function scheduleAnswerReveal(q) {
+    clearPracticeTimers();
+    if (!practiceAutoEnabled() || !isAutoGradable(q)) return;
+    const seconds = Math.max(1, Number(practiceMeta.questionSeconds) || 30);
+    const deadline = Date.now() + seconds * 1000;
+    showCountdown('自动显示答案：', deadline);
+    practiceTimeout = setTimeout(() => {
+      const reveal = $('#btnReveal');
+      if (reveal) reveal.click();
+    }, seconds * 1000);
+  }
+
+  function scheduleNextQuestion() {
+    clearPracticeTimers();
+    if (!practiceAutoEnabled()) return;
+    const seconds = Math.max(1, Number(practiceMeta.answerSeconds) || 5);
+    const deadline = Date.now() + seconds * 1000;
+    showCountdown('进入下一题：', deadline);
+    practiceTimeout = setTimeout(nextPractice, seconds * 1000);
+  }
 
   function startPractice(subject, options) {
     options = options || {};
@@ -212,7 +258,14 @@
     const count = options.count === 'all' ? list.length : parseInt(options.count || 20, 10);
     practiceQueue = list.slice(0, count);
     practiceIndex = 0;
-    practiceMeta = { subject: subject || '全部科目', mode: 'practice', scope: options.scope || 'all' };
+    practiceMeta = {
+      subject: subject || '全部科目',
+      mode: 'practice',
+      scope: options.scope || 'all',
+      autoAdvance: options.autoAdvance === true,
+      questionSeconds: Number(options.questionSeconds) || 30,
+      answerSeconds: Number(options.answerSeconds) || 5,
+    };
     state.session = { ids: practiceQueue.map(q => q.id), index: 0, meta: practiceMeta, correct: 0, answered: 0, startedAt: Date.now() };
     saveState();
     showView('view-quiz', '刷题练习');
@@ -243,6 +296,16 @@
     renderPractice();
   }
 
+  function previousPractice() {
+    if (practiceIndex <= 0) return;
+    practiceIndex--;
+    if (state.session && practiceMeta.mode === 'practice') {
+      state.session.index = practiceIndex;
+      saveState();
+    }
+    renderPractice();
+  }
+
   function shuffle(arr) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -253,6 +316,7 @@
   }
 
   function renderPractice() {
+    clearPracticeTimers();
     const q = practiceQueue[practiceIndex];
     if (!q) {
       const s = practiceMeta.mode === 'practice' ? state.session : null;
@@ -275,10 +339,11 @@
       <span>${practiceIndex + 1} / ${total}</span>
       <div class="bar"><div class="bar-fill" style="width:${((practiceIndex) / total) * 100}%"></div></div>
     `;
-    $('#quizMeta').textContent = `${escapeHtml(q.subject)} · ${TYPES[q.type] || q.type}`;
+    $('#quizMeta').innerHTML = `${escapeHtml(q.subject)} · ${TYPES[q.type] || q.type}${practiceAutoEnabled() ? ' · <span class="auto-countdown" id="autoCountdown"></span>' : ''}`;
     $('#quizBody').innerHTML = renderQuestion(q, 'practice');
     $('#quizFoot').innerHTML = renderPracticeFoot(q);
     bindPractice(q);
+    scheduleAnswerReveal(q);
   }
 
   function renderQuestion(q, mode) {
@@ -303,18 +368,22 @@
   }
 
   function renderPracticeFoot(q) {
+    const previous = `<button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button>`;
     if (isAutoGradable(q)) {
-      return `<button class="btn btn-secondary" id="btnReveal">显示答案</button>
-              <button class="btn btn-primary" id="btnSubmit" disabled>提交</button>`;
+      return `<div class="practice-actions">${previous}<button class="btn btn-secondary" id="btnReveal">显示答案</button>
+              <button class="btn btn-primary" id="btnSubmit" disabled>提交</button></div>`;
     }
     // 名词解释/配伍/案例：自评模式
-    return `<button class="btn btn-secondary" id="btnReveal">显示答案</button>`;
+    return `<div class="practice-actions">${previous}<button class="btn btn-secondary" id="btnReveal">显示答案</button></div>`;
   }
 
   function bindPractice(q) {
     const opts = $$('#quizBody .opt');
     let selected = [];
     const isMulti = q.type === 'multiple';
+
+    const previousBtn = $('#btnPrev');
+    if (previousBtn) previousBtn.onclick = previousPractice;
 
     opts.forEach(o => {
       o.onclick = () => {
@@ -347,6 +416,8 @@
   }
 
   function revealAnswer(q, opts, selected, mode) {
+    if ($('#quizBody .answer-box')) return;
+    clearPracticeTimers();
     const letters = answerLetters(q);
     opts.forEach(o => o.classList.add('disabled'));
     // 标注正确
@@ -377,14 +448,18 @@
     const foot = $('#quizFoot');
     if (!isAutoGradable(q) && !q._selfGraded) {
       // 自评模式：显示"我答对了/我答错了"
-      foot.innerHTML = `
+      foot.innerHTML = `<div class="practice-actions">
+        <button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button>
         <button class="btn grade-btn grade-good" id="btnSelfRight">✓ 我答对了</button>
-        <button class="btn grade-btn grade-again" id="btnSelfWrong">✗ 我答错了</button>`;
+        <button class="btn grade-btn grade-again" id="btnSelfWrong">✗ 我答错了</button></div>`;
+      $('#btnPrev').onclick = previousPractice;
       $('#btnSelfRight').onclick = () => selfGrade(q, true);
       $('#btnSelfWrong').onclick = () => selfGrade(q, false);
     } else {
-      foot.innerHTML = `<button class="btn btn-primary" id="btnNext">下一题</button>`;
+      foot.innerHTML = `<div class="practice-actions"><button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button><button class="btn btn-primary" id="btnNext">下一题</button></div>`;
+      $('#btnPrev').onclick = previousPractice;
       $('#btnNext').onclick = nextPractice;
+      scheduleNextQuestion();
     }
     showNoteEditor(q);
   }
@@ -432,7 +507,8 @@
     saveState();
     q._selfGraded = true;
     const foot = $('#quizFoot');
-    foot.innerHTML = `<button class="btn btn-primary" id="btnNext">下一题</button>`;
+    foot.innerHTML = `<div class="practice-actions"><button class="btn btn-secondary btn-prev" id="btnPrev" ${practiceIndex === 0 ? 'disabled' : ''}>上一题</button><button class="btn btn-primary" id="btnNext">下一题</button></div>`;
+    $('#btnPrev').onclick = previousPractice;
     $('#btnNext').onclick = nextPractice;
   }
 
@@ -618,6 +694,8 @@
   function openPracticeConfig() {
     $('#practiceSubject').innerHTML = '<option value="">全部科目</option>' + subjects().map(s =>
       `<option value="${escapeAttr(s.name)}">${escapeHtml(s.name)}（${s.count}）</option>`).join('');
+    $('#practiceAutoAdvance').checked = state.settings.autoAdvance === true;
+    $('#practiceAutoHint').textContent = `${state.settings.questionSeconds || 30} 秒显示答案，停留 ${state.settings.answerSeconds || 5} 秒跳题`;
     updateConfigAvailable();
     $('#configMask').classList.add('show');
     $('#configSheet').classList.add('show');
@@ -631,11 +709,14 @@
   // ---------- 设置与数据 ----------
   function openSettings() {
     $('#newPerDay').value = String(state.settings.newPerDay || 20);
+    $('#autoAdvance').checked = state.settings.autoAdvance === true;
+    $('#questionSeconds').value = String(state.settings.questionSeconds || 30);
+    $('#answerSeconds').value = String(state.settings.answerSeconds || 5);
     showView('view-settings', '设置与数据');
   }
 
   function exportData() {
-    const payload = { app: '医考题库', version: 2, exportedAt: new Date().toISOString(), state };
+    const payload = { app: '医考题库', version: 3, exportedAt: new Date().toISOString(), state };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -745,6 +826,9 @@
         scope: $('#practiceScope').value,
         count: $('#practiceCount').value,
         random: $('#practiceRandom').checked,
+        autoAdvance: $('#practiceAutoAdvance').checked,
+        questionSeconds: state.settings.questionSeconds,
+        answerSeconds: state.settings.answerSeconds,
       };
       closePracticeConfig();
       startPractice(subject, options);
@@ -760,6 +844,21 @@
       state.settings.newPerDay = parseInt(e.target.value, 10) || 20;
       saveState();
       showToast('学习设置已保存');
+    };
+    $('#autoAdvance').onchange = e => {
+      state.settings.autoAdvance = e.target.checked;
+      saveState();
+      showToast('自动答题设置已保存');
+    };
+    $('#questionSeconds').onchange = e => {
+      state.settings.questionSeconds = parseInt(e.target.value, 10) || 30;
+      saveState();
+      showToast('答题时间已保存');
+    };
+    $('#answerSeconds').onchange = e => {
+      state.settings.answerSeconds = parseInt(e.target.value, 10) || 5;
+      saveState();
+      showToast('答案停留时间已保存');
     };
     $('#btnExport').onclick = exportData;
     $('#btnImport').onclick = () => $('#importFile').click();

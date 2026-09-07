@@ -255,6 +255,9 @@ html, body {
   display: flex;
   gap: 10px;
 }
+.practice-actions { display: flex; gap: 10px; width: 100%; }
+.practice-actions .btn-prev { flex: 0 0 31%; }
+.auto-countdown { color: var(--primary); font-weight: 600; }
 .btn {
   flex: 1;
   border: none;
@@ -355,6 +358,8 @@ html, body {
 .settings-title { font-size: 13px; color: var(--text-2); margin: 12px 4px 7px; }
 .settings-card { padding: 0 16px; }
 .settings-card label, .settings-card button { width: 100%; border: 0; background: transparent; display: flex; align-items: center; justify-content: space-between; padding: 15px 0; color: var(--text); text-align: left; }
+.settings-card label + label { border-top: 1px solid var(--border); }
+.settings-card .settings-toggle { padding: 15px 0; }
 .settings-card button + button { border-top: 1px solid var(--border); }
 .settings-card span { flex: 1; }
 .settings-card b, .settings-card small { display: block; }
