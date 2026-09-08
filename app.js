@@ -320,7 +320,8 @@
       const correct = s ? s.correct : responses.filter(r => r.correct).length;
       const rate = answered ? Math.round(correct / answered * 100) : 0;
       $('#quizBody').innerHTML = `<div class="list-empty"><span class="big">✓</span><b>本组练习完成</b><br><span style="font-size:14px">答题 ${answered} 道 · 正确率 ${rate}%</span></div>`;
-      const doneText = practiceMeta.collection ? `返回${practiceMeta.collection === 'wrong' ? '错题' : '笔记'}分类` : '返回首页';
+      const collectionNames = { wrong: '错题', notes: '笔记', fav: '收藏' };
+      const doneText = practiceMeta.collection ? `返回${collectionNames[practiceMeta.collection] || ''}分类` : '返回首页';
       $('#quizFoot').innerHTML = `<button class="btn btn-primary" id="practiceDone">${doneText}</button>`;
       if (practiceMeta.mode === 'practice') {
         state.session = null;
@@ -658,14 +659,18 @@
   function collectionItems(kind) {
     const ids = kind === 'wrong'
       ? new Set(Object.keys(state.wrong))
-      : new Set(Object.keys(state.notes).filter(id => state.notes[id]));
+      : kind === 'fav'
+        ? new Set(Object.keys(state.fav))
+        : new Set(Object.keys(state.notes).filter(id => state.notes[id]));
     return BANK.filter(q => ids.has(q.id));
   }
 
   function renderCollection(kind) {
     const isWrong = kind === 'wrong';
-    const title = isWrong ? '错题本' : '我的笔记';
-    const icon = isWrong ? '📕' : '📝';
+    const isFav = kind === 'fav';
+    const title = isWrong ? '错题本' : isFav ? '我的收藏' : '我的笔记';
+    const icon = isWrong ? '📕' : isFav ? '⭐' : '📝';
+    const itemName = isWrong ? '错题' : isFav ? '收藏题' : '笔记题';
     const items = collectionItems(kind);
     const grouped = new Map();
     items.forEach(q => grouped.set(q.subject, (grouped.get(q.subject) || 0) + 1));
@@ -677,7 +682,7 @@
     const categories = Array.from(grouped.entries()).sort((a, b) => b[1] - a[1]);
     $('#listContent').innerHTML = `
       <div class="collection-summary">
-        <div><b>${items.length} 道${isWrong ? '错题' : '笔记题'}</b><p>按科目进入连续刷题，左右滑动也可切题</p></div>
+        <div><b>${items.length} 道${itemName}</b><p>按科目进入连续刷题，左右滑动也可切题</p></div>
         <button class="btn btn-primary" id="practiceCollectionAll">全部连续练习</button>
       </div>
       <div class="card subject-card collection-subjects">
@@ -707,11 +712,11 @@
     practiceIndex = 0;
     practiceResponses = {};
     practiceMeta = {
-      subject: subject || (kind === 'wrong' ? '全部错题' : '全部笔记'),
+      subject: subject || (kind === 'wrong' ? '全部错题' : kind === 'fav' ? '全部收藏' : '全部笔记'),
       mode: 'collection',
       collection: kind,
     };
-    showView('view-quiz', kind === 'wrong' ? '错题巩固' : '笔记复习');
+    showView('view-quiz', kind === 'wrong' ? '错题巩固' : kind === 'fav' ? '收藏练习' : '笔记复习');
     renderPractice();
   }
 
@@ -950,7 +955,7 @@
     $('#menuReview').onclick = startReview;
     $('#menuWrong').onclick = () => renderCollection('wrong');
     $('#menuNotes').onclick = () => renderCollection('notes');
-    $('#menuFav').onclick = () => renderList('收藏', Object.keys(state.fav), '⭐');
+    $('#menuFav').onclick = () => renderCollection('fav');
     $('#menuSettings').onclick = openSettings;
 
     $('#closeConfig').onclick = closePracticeConfig;
