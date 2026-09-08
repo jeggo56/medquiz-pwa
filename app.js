@@ -34,7 +34,7 @@
     return {
       memory: {}, wrong: {}, fav: {}, notes: {}, practice: {}, newToday: {},
       session: null,
-      settings: { newPerDay: 20 }
+      settings: { newPerDay: 20, reciteMode: false }
     };
   }
   function loadState() {
@@ -43,7 +43,7 @@
       if (raw) {
         const s = JSON.parse(raw);
         const merged = Object.assign(defaultState(), s);
-        merged.settings = Object.assign({ newPerDay: 20 }, s.settings || {});
+        merged.settings = Object.assign({ newPerDay: 20, reciteMode: false }, s.settings || {});
         return merged;
       }
     } catch (e) { /* ignore */ }
@@ -227,7 +227,7 @@
 
   function scheduleNextQuestion(correct) {
     clearPracticeTimers();
-    if (practiceMeta.mode === 'single') return;
+    if (practiceMeta.mode === 'single' || state.settings.reciteMode) return;
     const delay = correct ? 700 : 3000;
     if (!correct) showCountdown(Date.now() + delay);
     practiceTimeout = setTimeout(nextPractice, delay);
@@ -346,7 +346,9 @@
     $('#quizBody').innerHTML = renderQuestion(q, 'practice');
     $('#quizFoot').innerHTML = renderPracticeFoot(q);
     const saved = practiceResponses[q.id];
-    if (saved) {
+    if (state.settings.reciteMode) {
+      revealReciteAnswer(q);
+    } else if (saved) {
       const opts = $$('#quizBody .opt');
       const savedSelection = Array.isArray(saved.selected) ? saved.selected : [];
       opts.forEach(o => o.classList.toggle('selected', savedSelection.includes(o.dataset.val)));
@@ -389,6 +391,22 @@
     }
     // 名词解释/配伍/案例：自评模式
     return `<div class="practice-actions">${previous}<button class="btn btn-secondary" id="btnReveal">显示答案</button></div>`;
+  }
+
+  function correctSelections(q) {
+    const letters = answerLetters(q);
+    if (isJudge(q)) {
+      const ansIsTrue = letters === '对' || letters === '正确' || letters === 'A' || letters === 'TRUE' || letters === '√';
+      return [ansIsTrue ? '对' : '错'];
+    }
+    return isAutoGradable(q) ? letters.split('') : [];
+  }
+
+  function revealReciteAnswer(q) {
+    const opts = $$('#quizBody .opt');
+    const selected = correctSelections(q);
+    opts.forEach(o => o.classList.toggle('selected', selected.includes(o.dataset.val)));
+    revealAnswer(q, opts, selected, 'practice', { restored: true, selfGraded: true });
   }
 
   function bindPractice(q) {
@@ -482,7 +500,7 @@
       $('#btnSelfRight').onclick = () => selfGrade(q, true);
       $('#btnSelfWrong').onclick = () => selfGrade(q, false);
     } else {
-      const shouldAuto = outcome && typeof outcome.correct === 'boolean' && !outcome.restored && practiceMeta.mode !== 'single';
+      const shouldAuto = outcome && typeof outcome.correct === 'boolean' && !outcome.restored && practiceMeta.mode !== 'single' && !state.settings.reciteMode;
       const pause = shouldAuto && !outcome.correct
         ? '<button class="btn btn-secondary btn-pause" id="btnPauseAuto"><span id="autoCountdown">3 秒后下一题</span><small>暂停</small></button>'
         : '';
@@ -548,7 +566,7 @@
   }
 
   function appendAnswerBox(q, mode, selected) {
-    const body = $('#quizBody');
+    const body = mode === 'review' ? $('#reviewBody') : $('#quizBody');
     let ansTxt = q.answer;
     if (isJudge(q)) {
       const a = answerLetters(q);
@@ -626,18 +644,26 @@
     $('#reviewMeta').textContent = `${escapeHtml(q.subject)} · ${TYPES[q.type] || q.type}${card ? ' · 复习' : ' · 新卡片'}`;
     $('#reviewBody').innerHTML = renderQuestion(q, 'review');
     $('#reviewFoot').innerHTML = `<button class="btn btn-primary" id="btnShowAns">显示答案</button>`;
-    $('#btnShowAns').onclick = () => {
+    $('#btnShowAns').onclick = () => revealReviewAnswer(q);
+    if (state.settings.reciteMode) revealReviewAnswer(q);
+  }
+
+  function revealReviewAnswer(q) {
       const opts = $$('#reviewBody .opt');
-      opts.forEach(o => o.classList.add('disabled'));
-      const letters = answerLetters(q);
-      if (isJudge(q)) {
-        const a = letters;
-        const ansIsTrue = a === '对' || a === '正确' || a === 'A' || a === 'TRUE' || a === '√';
-        opts.forEach(o => { if ((o.dataset.val === '对') === ansIsTrue) o.classList.add('correct'); });
-      } else {
-        opts.forEach(o => { if (letters.includes(o.dataset.val)) o.classList.add('correct'); });
+      const selected = correctSelections(q);
+      opts.forEach(o => {
+        o.classList.add('disabled');
+        if (selected.includes(o.dataset.val)) o.classList.add('selected', 'correct');
+      });
+      appendAnswerBox(q, 'review', selected);
+      if (state.settings.reciteMode) {
+        $('#reviewFoot').innerHTML = '<button class="btn btn-primary" id="btnReviewNext">下一题</button>';
+        $('#btnReviewNext').onclick = () => {
+          reviewIndex++;
+          renderReview();
+        };
+        return;
       }
-      appendAnswerBox(q, 'review', []);
       $('#reviewFoot').innerHTML = `
         <div class="grade-row">
           <button class="grade-btn grade-again" data-g="0">重来<br><small>再见</small></button>
@@ -652,7 +678,6 @@
           renderReview();
         };
       });
-    };
   }
 
   // ---------- 列表（错题/笔记/收藏/科目） ----------
@@ -808,6 +833,7 @@
   // ---------- 设置与数据 ----------
   function openSettings() {
     $('#newPerDay').value = String(state.settings.newPerDay || 20);
+    $('#reciteMode').checked = state.settings.reciteMode === true;
     showView('view-settings', '设置与数据');
   }
 
@@ -983,6 +1009,11 @@
       state.settings.newPerDay = parseInt(e.target.value, 10) || 20;
       saveState();
       showToast('学习设置已保存');
+    };
+    $('#reciteMode').onchange = e => {
+      state.settings.reciteMode = e.target.checked;
+      saveState();
+      showToast(e.target.checked ? '背题模式已开启' : '背题模式已关闭');
     };
     $('#btnExport').onclick = exportData;
     $('#btnImport').onclick = () => $('#importFile').click();
